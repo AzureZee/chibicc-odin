@@ -17,12 +17,17 @@ Token :: struct {
 	kind: TokenKind,
 	next: ^Token,
 	val:  int, // If kind is TK_NUM, its value
+	loc:  int, // Token location
 }
-new_token :: proc(kind: TokenKind) -> ^Token {
+new_token :: proc(kind: TokenKind, loc: int) -> ^Token {
 	tok, _ := new(Token)
 	tok.kind = kind
+	tok.loc = loc
 	return tok
 }
+
+// Input string
+current_input: string
 
 // Reports an error and exit.
 error :: proc(fmt_str: string, args: ..any) {
@@ -30,10 +35,18 @@ error :: proc(fmt_str: string, args: ..any) {
 	os.exit(1)
 }
 
+// Reports an error location and exit.
+error_at :: proc(pos: int, fmt_str: string, args: ..any) {
+	fmt.eprintfln("%s", current_input)
+	fmt.eprintf("%*s^ ", pos, "") // print pos spaces
+	fmt.eprintfln(fmt_str, ..args)
+	os.exit(1)
+}
+
 // Ensure that the current token kind is Num.
 get_number :: proc(tok: ^Token) -> int {
 	if tok.kind != .Num {
-		error("expected a number")
+		error_at(tok.loc, "expected a number")
 	}
 	return tok.val
 }
@@ -43,7 +56,7 @@ parse_number :: proc(str: string) -> (num: int, parsed_len: int) {
 	return
 }
 
-tokenize :: proc(str: string) -> ^Token {
+tokenize :: proc(str := current_input) -> ^Token {
 	head := Token{}
 	cur := &head
 	i := 0
@@ -55,7 +68,7 @@ tokenize :: proc(str: string) -> ^Token {
 		case unicode.is_digit(ch):
 			{
 				val, len := parse_number(str[i:])
-				cur.next = new_token(.Num)
+				cur.next = new_token(.Num, i)
 				cur = cur.next
 				cur.val = val
 				i += len
@@ -65,15 +78,15 @@ tokenize :: proc(str: string) -> ^Token {
 				switch ch {
 				case '+', '-':
 					{
-						cur.next = new_token(TokenKind(ch))
+						cur.next = new_token(TokenKind(ch), i)
 						cur = cur.next
 						i += 1
 					}
 				case:
-					error("invalid token %q", ch)
+					error_at(i, "invalid token")
 				}}}
 	}
-	cur.next = new_token(.Eof)
+	cur.next = new_token(.Eof, i)
 	cur = cur.next
 	return head.next
 }
@@ -84,7 +97,8 @@ main :: proc() {
 		error("%v: too few arguments", args[0])
 	}
 
-	tok := tokenize(args[1])
+	current_input = args[1]
+	tok := tokenize()
 	sb := strings.builder_make()
 
 	fmt.sbprintfln(&sb, "  .globl main")
