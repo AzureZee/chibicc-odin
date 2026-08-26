@@ -1,12 +1,19 @@
-CC=odin
+CC = odin
+BIN = chibicc
 
-chibicc: main.odin
-	$(CC) build main.odin -file -out:chibicc
+$(BIN): main.odin
+	$(CC) build . -out:$(BIN)
 
-test: chibicc
+debug: main.odin
+	$(CC) build . -out:$(BIN) -debug
+
+release: main.odin
+	$(CC) build . -out:$(BIN) -o:speed
+
+test: $(BIN)
 	./test.sh
 
 clean:
 	rm -f chibicc *.o *~ tmp*
 
-.PHONY: test clean
+.PHONY: clean
