@@ -107,6 +107,7 @@ NodeKind :: enum {
 	Sub = '-',
 	Mul = '*',
 	Div = '/',
+	Neg = -'-',
 	Num = 48, // ascii number 0
 }
 
@@ -128,41 +129,15 @@ new_binary :: proc(kind: NodeKind, lhs, rhs: ^Node) -> ^Node {
 	node.rhs = rhs
 	return node
 }
+new_unary :: proc(kind: NodeKind, lhs: ^Node) -> ^Node {
+	node := new_node(kind)
+	node.lhs = lhs
+	return node
+}
 new_num :: proc(val: int) -> ^Node {
 	node := new_node(NodeKind.Num)
 	node.val = val
 	return node
-}
-
-// primary = "(" expr ")" | num
-primary :: proc(tok: ^Token) -> (node: ^Node, rest: ^Token) {
-	#partial switch tok.kind {
-	case .Num:
-		node = new_num(tok.val)
-		rest = tok.next
-	case .LParen:
-		node, rest = expr(tok.next)
-		rest = skip(rest, .RParen)
-	case: error_at(tok.loc, "expected an expression")
-	}
-	return
-}
-
-// mul = primary ("*" primary | "/" primary)*
-mul :: proc(tok: ^Token) -> (node: ^Node, rest: ^Token) {
-	node, rest = primary(tok)
-	for {
-		#partial switch rest.kind {
-		case .Star:
-			rhs, new_rest := primary(rest.next)
-			node = new_binary(.Mul, node, rhs)
-			rest = new_rest
-		case .Slash:
-			rhs, new_rest := primary(rest.next)
-			node = new_binary(.Div, node, rhs)
-			rest = new_rest
-		case: return
-		}}
 }
 
 // expr = mul ("+" mul | "-" mul)*
@@ -182,6 +157,51 @@ expr :: proc(tok: ^Token) -> (node: ^Node, rest: ^Token) {
 		}}
 }
 
+// mul = unary ("*" unary | "/" unary)*
+mul :: proc(tok: ^Token) -> (node: ^Node, rest: ^Token) {
+	node, rest = unary(tok)
+	for {
+		#partial switch rest.kind {
+		case .Star:
+			rhs, new_rest := unary(rest.next)
+			node = new_binary(.Mul, node, rhs)
+			rest = new_rest
+		case .Slash:
+			rhs, new_rest := unary(rest.next)
+			node = new_binary(.Div, node, rhs)
+			rest = new_rest
+		case: return
+		}}
+}
+
+// unary = ("+" | "-") unary
+//       | primary
+unary :: proc(tok: ^Token) -> (node: ^Node, rest: ^Token) {
+	#partial switch tok.kind {
+	case .Plus: return unary(tok.next)
+	case .Minus:
+		lhs, new_rest := unary(tok.next)
+		node = new_unary(.Neg, lhs)
+		rest = new_rest
+		return
+	case: return primary(tok)
+	}
+}
+
+// primary = "(" expr ")" | num
+primary :: proc(tok: ^Token) -> (node: ^Node, rest: ^Token) {
+	#partial switch tok.kind {
+	case .Num:
+		node = new_num(tok.val)
+		rest = tok.next
+	case .LParen:
+		node, rest = expr(tok.next)
+		rest = skip(rest, .RParen)
+	case: error_at(tok.loc, "expected an expression")
+	}
+	return
+}
+
 //
 // Code generator
 //
@@ -199,8 +219,13 @@ gen_pop :: proc(sb: ^strings.Builder, arg: string) {
 	depth -= 1
 }
 gen_expr :: proc(sb: ^strings.Builder, node: ^Node) {
-	if node.kind == .Num {
+	#partial switch node.kind {
+	case .Num:
 		fmt.sbprintfln(sb, "  mov $%v, %%rax", node.val)
+		return
+	case .Neg:
+		gen_expr(sb, node.lhs)
+		fmt.sbprintfln(sb, "  neg %%rax")
 		return
 	}
 	gen_expr(sb, node.rhs)
@@ -225,6 +250,9 @@ print_ast_inner :: proc(node: ^Node, indent: int) {
 	pad := strings.repeat("  ", indent)
 	switch node.kind {
 	case .Num: fmt.printfln("%s%v", pad, node.val)
+	case .Neg:
+		fmt.printfln("%s%v", pad, rune(TokenKind.Minus))
+		print_ast_inner(node.lhs, indent + 1)
 	case .Add, .Sub, .Mul, .Div:
 		fmt.printfln("%s%v", pad, rune(node.kind))
 		print_ast_inner(node.lhs, indent + 1)
