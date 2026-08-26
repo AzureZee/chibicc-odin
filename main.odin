@@ -18,6 +18,14 @@ TokenKind :: enum {
 	Slash  = '/',
 	Plus   = '+',
 	Minus  = '-',
+	LAngle = '<',
+	RAngle = '>',
+	LtEq   = '<' + '=',
+	GtEq   = '>' + '=',
+	Bang   = '!',
+	NotEq  = '!' + '=',
+	EqEq   = '=' * 2,
+	Equal  = '=',
 	Num    = 48, // ascii number 0
 	Eof    = 0, // NUL '\0'
 }
@@ -75,7 +83,8 @@ tokenize :: proc(str := current_input) -> ^Token {
 	head := Token{}
 	cur := &head
 	i := 0
-	for i < len(str) {
+	str_len := len(str)
+	for i < str_len {
 		ch := utf8.rune_at_pos(str, i)
 		switch {
 		case unicode.is_space(ch): i += 1
@@ -85,13 +94,24 @@ tokenize :: proc(str := current_input) -> ^Token {
 			cur = cur.next
 			cur.val = val
 			i += len
-		case: switch ch {
-				case '+', '-', '*', '/', '(', ')':
-					cur.next = new_token(TokenKind(ch), i)
-					cur = cur.next
-					i += 1
-				case: error_at(i, "invalid token")
-				}}
+		case:
+			tok_len := 1
+			tok_kind := TokenKind(ch)
+			switch ch {
+			case '(', ')':
+			case '+', '-', '*', '/':
+			case '=', '!', '<', '>':
+				inc_i := i + 1
+				if (inc_i < str_len) && utf8.rune_at_pos(str, inc_i) == '=' {
+					tok_len = 2
+					tok_kind = TokenKind(ch + '=')
+				}
+			case: error_at(i, "invalid token")
+			}
+			cur.next = new_token(tok_kind, i)
+			cur = cur.next
+			i += tok_len
+		}
 	}
 	cur.next = new_token(.Eof, i)
 	cur = cur.next
@@ -108,6 +128,10 @@ NodeKind :: enum {
 	Mul = '*',
 	Div = '/',
 	Neg = -'-',
+	Eq  = '=' * 2,
+	Ne  = '!' + '=',
+	Lt  = '<',
+	Le  = '<' + '=',
 	Num = 48, // ascii number 0
 }
 
@@ -140,38 +164,75 @@ new_num :: proc(val: int) -> ^Node {
 	return node
 }
 
-// expr = mul ("+" mul | "-" mul)*
+// expr = equality
 expr :: proc(tok: ^Token) -> (node: ^Node, rest: ^Token) {
-	node, rest = mul(tok)
-	for {
-		#partial switch rest.kind {
-		case .Plus:
-			rhs, new_rest := mul(rest.next)
-			node = new_binary(.Add, node, rhs)
-			rest = new_rest
-		case .Minus:
-			rhs, new_rest := mul(rest.next)
-			node = new_binary(.Sub, node, rhs)
-			rest = new_rest
-		case: return
-		}}
+	return equality(tok)
 }
 
+// equality = relational ("==" relational | "!=" relational)*
+equality :: proc(tok: ^Token) -> (node: ^Node, rest: ^Token) {
+	node, rest = relational(tok)
+	for {
+		kind: NodeKind
+		#partial switch rest.kind {
+		case .EqEq, .NotEq: kind = NodeKind(rest.kind)
+		case: return
+		}
+		rhs, new_rest := relational(rest.next)
+		node = new_binary(kind, node, rhs)
+		rest = new_rest
+	}
+}
+
+// relational = add ("<" add | "<=" add | ">" add | ">=" add)*
+relational :: proc(tok: ^Token) -> (node: ^Node, rest: ^Token) {
+	node, rest = add(tok)
+	for {
+		kind: NodeKind
+		lhs, rhs: ^Node
+		new_rest: ^Token
+		#partial switch rest.kind {
+		case .LAngle, .LtEq:
+			kind = NodeKind(rest.kind); lhs = node; rhs, new_rest = add(rest.next)
+		case .RAngle:
+			kind = .Lt; lhs, new_rest = add(rest.next); rhs = node
+		case .GtEq:
+			kind = .Le; lhs, new_rest = add(rest.next); rhs = node
+		case: return
+		}
+		node = new_binary(kind, lhs, rhs)
+		rest = new_rest
+	}
+}
+
+// add = mul ("+" mul | "-" mul)*
+add :: proc(tok: ^Token) -> (node: ^Node, rest: ^Token) {
+	node, rest = mul(tok)
+	for {
+		kind: NodeKind
+		#partial switch rest.kind {
+		case .Plus, .Minus: kind = NodeKind(rest.kind)
+		case: return
+		}
+		rhs, new_rest := mul(rest.next)
+		node = new_binary(kind, node, rhs)
+		rest = new_rest
+	}
+}
 // mul = unary ("*" unary | "/" unary)*
 mul :: proc(tok: ^Token) -> (node: ^Node, rest: ^Token) {
 	node, rest = unary(tok)
 	for {
+		kind: NodeKind
 		#partial switch rest.kind {
-		case .Star:
-			rhs, new_rest := unary(rest.next)
-			node = new_binary(.Mul, node, rhs)
-			rest = new_rest
-		case .Slash:
-			rhs, new_rest := unary(rest.next)
-			node = new_binary(.Div, node, rhs)
-			rest = new_rest
+		case .Star: kind = .Mul
+		case .Slash: kind = .Div
 		case: return
-		}}
+		}
+		rhs, new_rest := unary(rest.next)
+		node = new_binary(kind, node, rhs)
+		rest = new_rest
+	}
 }
 
 // unary = ("+" | "-") unary
@@ -232,6 +293,7 @@ gen_expr :: proc(sb: ^strings.Builder, node: ^Node) {
 	gen_push(sb)
 	gen_expr(sb, node.lhs)
 	gen_pop(sb, "%rdi")
+
 	#partial switch node.kind {
 	case .Add: fmt.sbprintfln(sb, "  add %%rdi, %%rax")
 	case .Sub: fmt.sbprintfln(sb, "  sub %%rdi, %%rax")
@@ -239,10 +301,30 @@ gen_expr :: proc(sb: ^strings.Builder, node: ^Node) {
 	case .Div:
 		fmt.sbprintfln(sb, "  cqo")
 		fmt.sbprintfln(sb, "  idiv %%rdi")
+	case .Eq, .Ne, .Lt, .Le:
+		fmt.sbprintfln(sb, "  cmp %%rdi, %%rax")
+		#partial switch node.kind {
+		case .Eq: fmt.sbprintfln(sb, "  sete %%al")
+		case .Ne: fmt.sbprintfln(sb, "  setne %%al")
+		case .Lt: fmt.sbprintfln(sb, "  setl %%al")
+		case .Le: fmt.sbprintfln(sb, "  setle %%al")
+		}
+		fmt.sbprintfln(sb, "  movzb %%al, %%rax")
 	case: error("invalid expression")
 	}
 }
 
+//
+// test-print
+//
+
+print_tok :: proc(tok: ^Token) {
+	if tok.kind == .Eof {
+		return
+	}
+	fmt.printfln("Kind=%v, loc=%v, val=%v", tok.kind, tok.loc, tok.val)
+	print_tok(tok.next)
+}
 print_ast :: proc(node: ^Node) {
 	print_ast_inner(node, 0)
 }
@@ -251,10 +333,15 @@ print_ast_inner :: proc(node: ^Node, indent: int) {
 	switch node.kind {
 	case .Num: fmt.printfln("%s%v", pad, node.val)
 	case .Neg:
-		fmt.printfln("%s%v", pad, rune(TokenKind.Minus))
+		fmt.printfln("%s%v", pad, '-')
 		print_ast_inner(node.lhs, indent + 1)
-	case .Add, .Sub, .Mul, .Div:
+	case .Add, .Sub, .Mul, .Div, .Lt:
 		fmt.printfln("%s%v", pad, rune(node.kind))
+		print_ast_inner(node.lhs, indent + 1)
+		print_ast_inner(node.rhs, indent + 1)
+
+	case .Eq, .Ne, .Le:
+		fmt.printfln("%s%v%v", pad, rune(int(node.kind) - '='), '=')
 		print_ast_inner(node.lhs, indent + 1)
 		print_ast_inner(node.rhs, indent + 1)
 	}
@@ -265,19 +352,34 @@ main :: proc() {
 	if len(args) < 2 {
 		error("%v: too few arguments", args[0])
 	}
+	state := 0
+	if len(args) > 2 {
+		if args[2] == "-tok" {
+			state = 1
+		} else if args[2] == "-ast" {
+			state = 2
+		}
+	}
 
 	// Tokenize and parse.
 	current_input = args[1]
 	tok := tokenize()
-	sb := strings.builder_make()
-	node, rest := expr(tok)
-	if rest.kind != .Eof {
-		error_at(rest.loc, "extra token")
+
+	if state == 1 {
+		print_tok(tok)
+		return
 	}
 
-	if len(args) > 2 && args[2] == "-ast" {
+	sb := strings.builder_make()
+	node, rest := expr(tok)
+
+	if state == 2 {
 		print_ast(node)
 		return
+	}
+
+	if rest.kind != .Eof {
+		error_at(rest.loc, "extra token")
 	}
 
 	fmt.sbprintfln(&sb, "  .globl main")
