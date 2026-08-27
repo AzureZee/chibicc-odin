@@ -1,7 +1,7 @@
 CC = odin
 BIN = chibicc
 
-$(BIN): main.odin
+$(BIN): *.odin
 	$(CC) build . -out:$(BIN)
 
 debug: main.odin
