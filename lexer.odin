@@ -1,7 +1,5 @@
 package chibicc
 
-import "core:fmt"
-import "core:os"
 import "core:strconv"
 import "core:unicode"
 import "core:unicode/utf8"
@@ -40,27 +38,6 @@ new_token :: proc(kind: TokenKind, loc: int) -> ^Token {
 // Input string
 current_input: string
 
-// Reports an error and exit.
-error :: proc(fmt_str: string, args: ..any) {
-	fmt.eprintfln(fmt_str, ..args)
-	os.exit(1)
-}
-
-// Reports an error location and exit.
-error_at :: proc(pos: int, fmt_str: string, args: ..any) {
-	fmt.eprintfln("%s", current_input)
-	fmt.eprintf("%*s^ ", pos, "") // print pos spaces
-	fmt.eprintfln(fmt_str, ..args)
-	os.exit(1)
-}
-
-// Ensure that the current token kind is Num.
-get_number :: proc(tok: ^Token) -> int {
-	if tok.kind != .Num {
-		error_at(tok.loc, "expected a number")
-	}
-	return tok.val
-}
 parse_number :: proc(str: string) -> (num: int, parsed_len: int) {
 	num_i64, _ := strconv.parse_i64_of_base(str, 10, &parsed_len)
 	num = int(num_i64)
