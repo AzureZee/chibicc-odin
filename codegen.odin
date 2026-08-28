@@ -3,73 +3,114 @@ package chibicc
 import "core:fmt"
 import "core:strings"
 
+@(private = "file")
 depth: int
 
+@(private = "file")
+sb: ^strings.Builder
+
+@(private = "file")
+sbprintfln :: proc(fmt_s: string, args: ..any) {
+	fmt.sbprintfln(sb, fmt_s, ..args)
+}
+
 codegen :: proc(node: ^Node) {
-	sb := strings.builder_make()
-	fmt.sbprintfln(&sb, "  .globl main")
-	fmt.sbprintfln(&sb, "main:")
+	buf := strings.builder_make()
+	sb = &buf
+	sbprintfln("  .globl main")
+	sbprintfln("main:")
+
+	// Prologue
+	sbprintfln("  push %%rbp")
+	sbprintfln("  mov %%rsp, %%rbp")
+	sbprintfln("  sub $208, %%rsp") // 26 * 8 = 208
 
 	for nd := node; nd != nil; nd = nd.next {
-		assert(nd!=nil)
-		gen_stmt(&sb, nd)
+		gen_stmt(nd)
 		assert(depth == 0)
 	}
-	fmt.sbprintfln(&sb, "  ret")
 
-	fmt.print(strings.to_string(sb))
+	// Epilogue
+	sbprintfln("  mov %%rbp, %%rsp")
+	sbprintfln("  pop %%rbp")
+
+	sbprintfln("  ret")
+	fmt.print(strings.to_string(buf))
 }
-gen_stmt :: proc(sb: ^strings.Builder, node: ^Node) {
+
+gen_stmt :: proc(node: ^Node) {
 	if node.kind == .ExprStmt {
-		gen_expr(sb, node.lhs)
+		gen_expr(node.lhs)
 	} else {
 		error("invalid statement")
 	}
 }
 
-gen_expr :: proc(sb: ^strings.Builder, node: ^Node) {
+// Compute the absolute address of a given node.
+// It's an error if a given node does not reside in memory.
+gen_addr :: proc(node: ^Node) {
+	if node.kind == .Var {
+		offset := (node.name[0] - 'a' + 1) * 8
+		sbprintfln("  lea %d(%%rbp), %%rax", -offset)
+	} else {
+		error("not an left-value")
+	}
+}
+
+gen_expr :: proc(node: ^Node) {
 	#partial switch node.kind {
 	case .Num:
-		fmt.sbprintfln(sb, "  mov $%v, %%rax", node.val)
+		sbprintfln("  mov $%v, %%rax", node.val)
 		return
 	case .Neg:
-		gen_expr(sb, node.lhs)
-		fmt.sbprintfln(sb, "  neg %%rax")
+		gen_expr(node.lhs)
+		sbprintfln("  neg %%rax")
+		return
+	case .Var:
+		gen_addr(node)
+		sbprintfln("  mov (%%rax), %%rax")
+		return
+	case .Assign:
+		gen_addr(node.lhs)
+		push()
+		gen_expr(node.rhs)
+		pop("%rdi")
+		sbprintfln("  mov %%rax, (%%rdi)")
 		return
 	}
-	gen_expr(sb, node.rhs)
-	gen_push(sb)
-	gen_expr(sb, node.lhs)
-	gen_pop(sb, "%rdi")
+	gen_expr(node.rhs)
+	push()
+	gen_expr(node.lhs)
+	pop("%rdi")
 
 	#partial switch node.kind {
-	case .Add: fmt.sbprintfln(sb, "  add %%rdi, %%rax")
-	case .Sub: fmt.sbprintfln(sb, "  sub %%rdi, %%rax")
-	case .Mul: fmt.sbprintfln(sb, "  imul %%rdi, %%rax")
+	case .Add: sbprintfln("  add %%rdi, %%rax")
+	case .Sub: sbprintfln("  sub %%rdi, %%rax")
+	case .Mul: sbprintfln("  imul %%rdi, %%rax")
 	case .Div:
-		fmt.sbprintfln(sb, "  cqo")
-		fmt.sbprintfln(sb, "  idiv %%rdi")
+		sbprintfln("  cqo")
+		sbprintfln("  idiv %%rdi")
 	case .Eq, .Ne, .Lt, .Le:
-		fmt.sbprintfln(sb, "  cmp %%rdi, %%rax")
+		sbprintfln("  cmp %%rdi, %%rax")
 		#partial switch node.kind {
-		case .Eq: fmt.sbprintfln(sb, "  sete %%al")
-		case .Ne: fmt.sbprintfln(sb, "  setne %%al")
-		case .Lt: fmt.sbprintfln(sb, "  setl %%al")
-		case .Le: fmt.sbprintfln(sb, "  setle %%al")
+		case .Eq: sbprintfln("  sete %%al")
+		case .Ne: sbprintfln("  setne %%al")
+		case .Lt: sbprintfln("  setl %%al")
+		case .Le: sbprintfln("  setle %%al")
 		}
-		fmt.sbprintfln(sb, "  movzb %%al, %%rax")
+		sbprintfln("  movzb %%al, %%rax")
 	case: error("invalid expression")
 	}
 }
 
 // push reg to stack-top
-gen_push :: proc(sb: ^strings.Builder) {
-	fmt.sbprintfln(sb, "  push %%rax")
+push :: proc() {
+	sbprintfln("  push %%rax")
 	depth += 1
 }
 
 // pop stack-top to arg
-gen_pop :: proc(sb: ^strings.Builder, arg: string) {
-	fmt.sbprintfln(sb, "  pop %s", arg)
+pop :: proc(arg: string) {
+	sbprintfln("  pop %s", arg)
 	depth -= 1
 }

@@ -5,6 +5,7 @@ import "core:unicode"
 import "core:unicode/utf8"
 
 TokenKind :: enum {
+	Ident  = 'a' + '_', // Identifiers
 	LParen = '(',
 	RParen = ')',
 	Star   = '*',
@@ -24,8 +25,8 @@ TokenKind :: enum {
 	Eof    = 0, // NUL '\0'
 }
 Token :: struct {
-	kind: TokenKind,
 	next: ^Token,
+	kind: TokenKind,
 	val : int, // If kind is TK_NUM, its value
 	loc : int, // Token location
 }
@@ -72,6 +73,7 @@ tokenize :: proc(str: string) -> ^Token {
 			tok_len := 1
 			tok_kind := TokenKind(ch)
 			switch ch {
+			case 'a' ..= 'z': tok_kind = .Ident
 			case ';':
 			case '(', ')':
 			case '+', '-', '*', '/':

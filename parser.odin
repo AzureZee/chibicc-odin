@@ -10,15 +10,18 @@ NodeKind :: enum {
 	Ne       = '!' + '=',
 	Lt       = '<',
 	Le       = '<' + '=',
+	Assign   = '=',
 	ExprStmt = ';', // Expression statement
+	Var      = 'a' + '_', // Variable
 	Num      = 48, // ascii number 0
 }
 
 // AST node type
 Node :: struct {
-	kind          : NodeKind,
 	next, lhs, rhs: ^Node,
-	val           : int, // If kind is ND_NUM, its value
+	name          : string, // Used if kind == ND_VAR
+	kind          : NodeKind,
+	val           : int, // Used if kind == ND_NUM
 }
 new_node :: proc(kind: NodeKind) -> ^Node {
 	node, _ := new(Node)
@@ -42,6 +45,12 @@ new_num :: proc(val: int) -> ^Node {
 	return node
 }
 
+new_var_node :: proc(name: string) -> ^Node {
+	node := new_node(NodeKind.Var)
+	node.name = name
+	return node
+}
+
 // stmt = expr-stmt
 stmt :: proc(tok: ^Token) -> (node: ^Node, rest: ^Token) {
 	return expr_stmt(tok)
@@ -55,9 +64,23 @@ expr_stmt :: proc(tok: ^Token) -> (node: ^Node, rest: ^Token) {
 	return
 }
 
-// expr = equality
+// expr = assign
 expr :: proc(tok: ^Token) -> (node: ^Node, rest: ^Token) {
-	return equality(tok)
+	return assign(tok)
+}
+
+// assign = equality ("=" assign)?
+assign :: proc(tok: ^Token) -> (node: ^Node, rest: ^Token) {
+	lhs, eq_rest := equality(tok)
+	if eq_rest.kind == .Equal {
+		rhs, assign_rest := assign(eq_rest.next)
+		node = new_binary(.Assign, lhs, rhs)
+		rest = assign_rest
+	} else {
+		node = lhs
+		rest = eq_rest
+	}
+	return
 }
 
 // equality = relational ("==" relational | "!=" relational)*
@@ -140,9 +163,13 @@ unary :: proc(tok: ^Token) -> (node: ^Node, rest: ^Token) {
 	}
 }
 
-// primary = "(" expr ")" | num
+// primary = "(" expr ")" | ident | num
 primary :: proc(tok: ^Token) -> (node: ^Node, rest: ^Token) {
 	#partial switch tok.kind {
+	case .Ident:
+		i := tok.loc
+		node = new_var_node(current_input[i:i + 1])
+		rest = tok.next
 	case .Num:
 		node = new_num(tok.val)
 		rest = tok.next
