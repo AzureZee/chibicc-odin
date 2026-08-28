@@ -19,6 +19,7 @@ TokenKind :: enum {
 	NotEq  = '!' + '=',
 	EqEq   = '=' * 2,
 	Equal  = '=',
+	Semi   = ';',
 	Num    = 48, // ascii number 0
 	Eof    = 0, // NUL '\0'
 }
@@ -71,6 +72,7 @@ tokenize :: proc(str: string) -> ^Token {
 			tok_len := 1
 			tok_kind := TokenKind(ch)
 			switch ch {
+			case ';':
 			case '(', ')':
 			case '+', '-', '*', '/':
 			case '=', '!', '<', '>':

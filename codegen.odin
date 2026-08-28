@@ -3,20 +3,29 @@ package chibicc
 import "core:fmt"
 import "core:strings"
 
+depth: int
+
 codegen :: proc(node: ^Node) {
 	sb := strings.builder_make()
 	fmt.sbprintfln(&sb, "  .globl main")
 	fmt.sbprintfln(&sb, "main:")
 
-	// Traverse the AST to emit assembly.
-	gen_expr(&sb, node)
+	for nd := node; nd != nil; nd = nd.next {
+		assert(nd!=nil)
+		gen_stmt(&sb, nd)
+		assert(depth == 0)
+	}
 	fmt.sbprintfln(&sb, "  ret")
-	assert(depth == 0)
 
 	fmt.print(strings.to_string(sb))
 }
-
-depth: int
+gen_stmt :: proc(sb: ^strings.Builder, node: ^Node) {
+	if node.kind == .ExprStmt {
+		gen_expr(sb, node.lhs)
+	} else {
+		error("invalid statement")
+	}
+}
 
 gen_expr :: proc(sb: ^strings.Builder, node: ^Node) {
 	#partial switch node.kind {

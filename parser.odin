@@ -1,24 +1,24 @@
 package chibicc
 
 NodeKind :: enum {
-	Add = '+',
-	Sub = '-',
-	Mul = '*',
-	Div = '/',
-	Neg = -'-',
-	Eq  = '=' * 2,
-	Ne  = '!' + '=',
-	Lt  = '<',
-	Le  = '<' + '=',
-	Num = 48, // ascii number 0
+	Add      = '+',
+	Sub      = '-',
+	Mul      = '*',
+	Div      = '/',
+	Neg      = -'-',
+	Eq       = '=' * 2,
+	Ne       = '!' + '=',
+	Lt       = '<',
+	Le       = '<' + '=',
+	ExprStmt = ';', // Expression statement
+	Num      = 48, // ascii number 0
 }
 
 // AST node type
 Node :: struct {
-	kind: NodeKind,
-	lhs : ^Node,
-	rhs : ^Node,
-	val : int, // If kind is ND_NUM, its value
+	kind          : NodeKind,
+	next, lhs, rhs: ^Node,
+	val           : int, // If kind is ND_NUM, its value
 }
 new_node :: proc(kind: NodeKind) -> ^Node {
 	node, _ := new(Node)
@@ -40,6 +40,19 @@ new_num :: proc(val: int) -> ^Node {
 	node := new_node(NodeKind.Num)
 	node.val = val
 	return node
+}
+
+// stmt = expr-stmt
+stmt :: proc(tok: ^Token) -> (node: ^Node, rest: ^Token) {
+	return expr_stmt(tok)
+}
+
+// expr-stmt = expr ";"
+expr_stmt :: proc(tok: ^Token) -> (node: ^Node, rest: ^Token) {
+	lhs, expr_rest := expr(tok)
+	node = new_unary(.ExprStmt, lhs)
+	rest = skip(expr_rest, .Semi)
+	return
 }
 
 // expr = equality
@@ -141,10 +154,18 @@ primary :: proc(tok: ^Token) -> (node: ^Node, rest: ^Token) {
 	return
 }
 
+// program = stmt*
 parse :: proc(tok: ^Token) -> ^Node {
-	node, rest := expr(tok)
-	if rest.kind != .Eof {
-		error_at(rest.loc, "extra token")
+	head := Node{}
+	cur := &head
+	node, rest := stmt(tok)
+	cur.next = node
+	cur = cur.next
+	for rest.kind != .Eof {
+		next, stmt_rest := stmt(rest)
+		rest = stmt_rest
+		cur.next = next
+		cur = cur.next
 	}
-	return node
+	return head.next
 }
