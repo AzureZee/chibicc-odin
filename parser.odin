@@ -122,12 +122,16 @@ compound_stmt :: proc(tok: ^Token) -> (^Node, ^Token) {
 	return node, rest.next
 }
 
-// expr-stmt = expr ";"
-expr_stmt :: proc(tok: ^Token) -> (node: ^Node, rest: ^Token) {
-	lhs, expr_rest := expr(tok)
-	node = new_unary(.ExprStmt, lhs)
-	rest = skip(expr_rest, .Semi)
-	return
+// expr-stmt = expr? ";"
+expr_stmt :: proc(tok: ^Token) -> (^Node, ^Token) {
+	if tok.kind == .Semi {
+		return new_node(.Block), tok.next
+	}
+
+	node, rest := expr(tok)
+	node = new_unary(.ExprStmt, node)
+	rest = skip(rest, .Semi)
+	return node, rest
 }
 
 // expr = assign
