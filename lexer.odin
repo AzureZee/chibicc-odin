@@ -6,6 +6,8 @@ import "core:unicode/utf8"
 TokenKind :: enum {
 	LParen   = '(',
 	RParen   = ')',
+	LCurly   = '{',
+	RCurly   = '}',
 	Star     = '*',
 	Slash    = '/',
 	Plus     = '+',
@@ -98,7 +100,7 @@ tokenize :: proc(str: string) -> ^Token {
 			tok_len = end - start
 			tok_kind = ident2keyword(str[start:end])
 		case ';':
-		case '(', ')':
+		case '(', ')', '{', '}':
 		case '+', '-', '*', '/':
 		case '=', '!', '<', '>':
 			inc_i := i + 1

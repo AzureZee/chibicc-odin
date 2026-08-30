@@ -27,6 +27,7 @@ Function :: struct {
 }
 
 NodeKind :: enum {
+	Block    = '{', // { ... }
 	Add      = '+',
 	Sub      = '-',
 	Mul      = '*',
@@ -45,9 +46,10 @@ NodeKind :: enum {
 
 // AST node type
 Node :: struct {
-	next, lhs, rhs: ^Node,
-	var           : ^Obj, // Used if kind == ND_VAR
 	kind          : NodeKind,
+	next, lhs, rhs: ^Node,
+	body          : ^Node, // Block
+	var           : ^Obj, // Used if kind == ND_VAR
 	val           : int, // Used if kind == ND_NUM
 }
 new_node :: proc(kind: NodeKind) -> ^Node {
@@ -88,15 +90,36 @@ new_local_var :: proc(name: string) -> ^Obj {
 }
 
 // stmt = "return" expr ";"
+//      | "{" compound-stmt
 //      | expr-stmt
 stmt :: proc(tok: ^Token) -> (node: ^Node, rest: ^Token) {
-	if tok.kind == .K_Return {
+	#partial switch tok.kind {
+	case .K_Return:
 		lhs, expr_rest := expr(tok.next)
 		node = new_unary(.Return, lhs)
 		rest = skip(expr_rest, .Semi)
 		return
+	case .LCurly: return compound_stmt(tok.next)
 	}
 	return expr_stmt(tok)
+}
+
+// compound-stmt = stmt* "}"
+compound_stmt :: proc(tok: ^Token) -> (^Node, ^Token) {
+	head := Node{}
+	cur := &head
+	node, rest := stmt(tok)
+	cur.next = node
+	cur = cur.next
+	for rest.kind != .RCurly {
+		next, stmt_rest := stmt(rest)
+		rest = stmt_rest
+		cur.next = next
+		cur = cur.next
+	}
+	node = new_node(.Block)
+	node.body = head.next
+	return node, rest.next
 }
 
 // expr-stmt = expr ";"
@@ -229,20 +252,13 @@ primary :: proc(tok: ^Token) -> (node: ^Node, rest: ^Token) {
 
 // program = stmt*
 parse :: proc(tok: ^Token) -> ^Function {
-	head := Node{}
-	cur := &head
-	node, rest := stmt(tok)
-	cur.next = node
-	cur = cur.next
-	for rest.kind != .Eof {
-		next, stmt_rest := stmt(rest)
-		rest = stmt_rest
-		cur.next = next
-		cur = cur.next
-	}
+	tok := skip(tok, .LCurly)
+	node, rest := compound_stmt(tok)
+	assert(rest.kind == .Eof)
+
 	prog, _ := new(Function)
 	prog^ = {
-		body   = head.next,
+		body   = node,
 		locals = locals,
 	}
 	return prog

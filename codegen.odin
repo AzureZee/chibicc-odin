@@ -28,10 +28,8 @@ codegen :: proc(prog: ^Function) {
 	sbprintfln("  mov %%rsp, %%rbp")
 	sbprintfln("  sub $%d, %%rsp", prog.stack_size)
 
-	for nd := prog.body; nd != nil; nd = nd.next {
-		gen_stmt(nd)
-		assert(depth == 0)
-	}
+	gen_stmt(prog.body)
+	assert(depth == 0)
 
 	sbprintfln(".L.return:")
 	// Epilogue
@@ -44,6 +42,9 @@ codegen :: proc(prog: ^Function) {
 
 gen_stmt :: proc(node: ^Node) {
 	#partial switch node.kind {
+	case .Block: for nd := node.body; nd != nil; nd = nd.next {
+				gen_stmt(nd)
+			}
 	case .Return:
 		gen_expr(node.lhs)
 		sbprintfln("  jmp .L.return")
