@@ -4,10 +4,10 @@ BIN = chibicc
 $(BIN): *.odin
 	$(CC) build . -out:$(BIN)
 
-debug: main.odin
+debug: *.odin
 	$(CC) build . -out:$(BIN) -debug
 
-release: main.odin
+release: *.odin
 	$(CC) build . -out:$(BIN) -o:speed
 
 test: $(BIN)

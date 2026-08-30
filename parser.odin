@@ -1,5 +1,31 @@
 package chibicc
 
+// All local variable instances created during parsing are
+// accumulated to this list.
+locals: ^Obj
+
+// Local variable
+Obj :: struct {
+	name  : string,
+	next  : ^Obj,
+	offset: int, // Offset from RBP
+}
+
+find_var :: proc(tok: ^Token) -> ^Obj {
+	for var := locals; var != nil; var = var.next {
+		if tok_str(tok) == var.name {
+			return var
+		}
+	}
+	return nil
+}
+
+Function :: struct {
+	body      : ^Node,
+	locals    : ^Obj,
+	stack_size: int, // Offset from RBP
+}
+
 NodeKind :: enum {
 	Add      = '+',
 	Sub      = '-',
@@ -19,7 +45,7 @@ NodeKind :: enum {
 // AST node type
 Node :: struct {
 	next, lhs, rhs: ^Node,
-	name          : string, // Used if kind == ND_VAR
+	var           : ^Obj, // Used if kind == ND_VAR
 	kind          : NodeKind,
 	val           : int, // Used if kind == ND_NUM
 }
@@ -45,10 +71,19 @@ new_num :: proc(val: int) -> ^Node {
 	return node
 }
 
-new_var_node :: proc(name: string) -> ^Node {
+new_var_node :: proc(var: ^Obj) -> ^Node {
 	node := new_node(NodeKind.Var)
-	node.name = name
+	node.var = var
 	return node
+}
+new_local_var :: proc(name: string) -> ^Obj {
+	var, _ := new(Obj)
+	var^ = {
+		name = name,
+		next = locals,
+	}
+	locals = var
+	return var
 }
 
 // stmt = expr-stmt
@@ -167,8 +202,11 @@ unary :: proc(tok: ^Token) -> (node: ^Node, rest: ^Token) {
 primary :: proc(tok: ^Token) -> (node: ^Node, rest: ^Token) {
 	#partial switch tok.kind {
 	case .Ident:
-		i := tok.loc
-		node = new_var_node(current_input[i:i + 1])
+		var := find_var(tok)
+		if var == nil {
+			var = new_local_var(tok_str(tok))
+		}
+		node = new_var_node(var)
 		rest = tok.next
 	case .Num:
 		node = new_num(tok.val)
@@ -182,7 +220,7 @@ primary :: proc(tok: ^Token) -> (node: ^Node, rest: ^Token) {
 }
 
 // program = stmt*
-parse :: proc(tok: ^Token) -> ^Node {
+parse :: proc(tok: ^Token) -> ^Function {
 	head := Node{}
 	cur := &head
 	node, rest := stmt(tok)
@@ -194,5 +232,10 @@ parse :: proc(tok: ^Token) -> ^Node {
 		cur.next = next
 		cur = cur.next
 	}
-	return head.next
+	prog, _ := new(Function)
+	prog^ = {
+		body   = head.next,
+		locals = locals,
+	}
+	return prog
 }

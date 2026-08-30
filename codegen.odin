@@ -14,18 +14,21 @@ sbprintfln :: proc(fmt_s: string, args: ..any) {
 	fmt.sbprintfln(sb, fmt_s, ..args)
 }
 
-codegen :: proc(node: ^Node) {
+codegen :: proc(prog: ^Function) {
+	assign_local_var_offsets(prog)
+
 	buf := strings.builder_make()
 	sb = &buf
+
 	sbprintfln("  .globl main")
 	sbprintfln("main:")
 
 	// Prologue
 	sbprintfln("  push %%rbp")
 	sbprintfln("  mov %%rsp, %%rbp")
-	sbprintfln("  sub $208, %%rsp") // 26 * 8 = 208
+	sbprintfln("  sub $%d, %%rsp", prog.stack_size)
 
-	for nd := node; nd != nil; nd = nd.next {
+	for nd := prog.body; nd != nil; nd = nd.next {
 		gen_stmt(nd)
 		assert(depth == 0)
 	}
@@ -50,10 +53,9 @@ gen_stmt :: proc(node: ^Node) {
 // It's an error if a given node does not reside in memory.
 gen_addr :: proc(node: ^Node) {
 	if node.kind == .Var {
-		offset := (node.name[0] - 'a' + 1) * 8
-		sbprintfln("  lea %d(%%rbp), %%rax", -offset)
+		sbprintfln("  lea %d(%%rbp), %%rax", node.var.offset)
 	} else {
-		error("not an left-value")
+		error("not an local value")
 	}
 }
 
@@ -113,4 +115,20 @@ push :: proc() {
 pop :: proc(arg: string) {
 	sbprintfln("  pop %s", arg)
 	depth -= 1
+}
+
+// Round up `n` to the nearest multiple of `align`. For instance,
+// align_to(5, 8) returns 8 and align_to(11, 8) returns 16.
+align_to :: proc(n, align: int) -> int {
+	return (n + align - 1) / align * align
+}
+
+// Assign offsets to local variables.
+assign_local_var_offsets :: proc(prog: ^Function) {
+	offset := 0
+	for var := prog.locals; var != nil; var = var.next {
+		offset += 8
+		var.offset = -offset
+	}
+	prog.stack_size = align_to(offset, 16)
 }

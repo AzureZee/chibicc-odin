@@ -8,6 +8,7 @@ main :: proc() {
 		error("%v: too few arguments", args[0])
 	}
 	tok := tokenize(args[1])
-	node := parse(tok)
-	codegen(node)
+	prog := parse(tok)
+	// Traverse the AST to emit assembly.
+	codegen(prog)
 }
