@@ -4,28 +4,32 @@ import "core:strconv"
 import "core:unicode/utf8"
 
 TokenKind :: enum {
-	LParen   = '(',
-	RParen   = ')',
-	LCurly   = '{',
-	RCurly   = '}',
-	Star     = '*',
-	Slash    = '/',
-	Plus     = '+',
-	Minus    = '-',
-	LAngle   = '<',
-	RAngle   = '>',
-	Bang     = '!',
-	Equal    = '=',
-	LtEq     = -'<', // <=
-	GtEq     = -'>', // >=
-	NotEq    = -'!', // !=
-	EqEq     = -'=', // ==
-	Semi     = ';',
-	Num      = '0', // ascii number 0
-	Eof      = 0, // NUL '\0'
-	Ident    = 1000, // Identifiers or Keywords
-	K_Return = 9999,
+	LParen = '(',
+	RParen = ')',
+	LCurly = '{',
+	RCurly = '}',
+	Star   = '*',
+	Slash  = '/',
+	Plus   = '+',
+	Minus  = '-',
+	LAngle = '<',
+	RAngle = '>',
+	Bang   = '!',
+	Equal  = '=',
+	LtEq   = -'<', // <=
+	GtEq   = -'>', // >=
+	NotEq  = -'!', // !=
+	EqEq   = -'=', // ==
+	Semi   = ';',
+	Num    = '0', // ascii number 0
+	Eof    = 0, // NUL '\0'
+	Ident  = 999, // Identifiers or Keywords
+	K_if   = __KEYWORD,
+	K_else,
+	K_return,
 }
+__KEYWORD :: 1000
+
 Token :: struct {
 	next: ^Token,
 	kind: TokenKind,
@@ -69,10 +73,14 @@ is_ident :: proc(ch: rune) -> bool {
 }
 
 ident2keyword :: proc(ident: string) -> TokenKind {
-	switch ident {
-	case "return": return .K_Return
-	case: return .Ident
+	keywords :: [?]string{"if", "else", "return"}
+
+	for kw, i in keywords {
+		if ident == kw {
+			return TokenKind(i + __KEYWORD)
+		}
 	}
+	return .Ident
 }
 
 tokenize :: proc(str: string) -> ^Token {

@@ -42,6 +42,18 @@ codegen :: proc(prog: ^Function) {
 
 gen_stmt :: proc(node: ^Node) {
 	#partial switch node.kind {
+	case .ND_IF:
+		c := count()
+		gen_expr(node.cond)
+		sbprintfln("  cmp $0, %%rax")
+		sbprintfln("  je  .L.else.%d", c)
+		gen_stmt(node.then)
+		sbprintfln("  jmp .L.end.%d", c)
+		sbprintfln(".L.else.%d:", c)
+		if node.els != nil {
+			gen_stmt(node.els)
+		}
+		sbprintfln(".L.end.%d:", c)
 	case .Block: for nd := node.body; nd != nil; nd = nd.next {
 				gen_stmt(nd)
 			}
@@ -107,6 +119,13 @@ gen_expr :: proc(node: ^Node) {
 		sbprintfln("  movzb %%al, %%rax")
 	case: error("invalid expression")
 	}
+}
+
+@(private = "file")
+count :: proc() -> int {
+	@(static) i := 1
+	defer i += 1
+	return i
 }
 
 // push reg to stack-top

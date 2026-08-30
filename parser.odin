@@ -40,17 +40,19 @@ NodeKind :: enum {
 	Assign   = '=',
 	ExprStmt = ';', // Expression statement
 	Num      = '0', // ascii number 0
-	Var      = 1000, // Variable
+	Var      = 999, // Variable
+	ND_IF    = __KEYWORD,
 	Return   = 9999,
 }
 
 // AST node type
 Node :: struct {
-	kind          : NodeKind,
-	next, lhs, rhs: ^Node,
-	body          : ^Node, // Block
-	var           : ^Obj, // Used if kind == ND_VAR
-	val           : int, // Used if kind == ND_NUM
+	kind           : NodeKind,
+	next, lhs, rhs : ^Node,
+	cond, then, els: ^Node, // "if" statement
+	body           : ^Node, // Block
+	var            : ^Obj, // Used if kind == ND_VAR
+	val            : int, // Used if kind == ND_NUM
 }
 new_node :: proc(kind: NodeKind) -> ^Node {
 	node, _ := new(Node)
@@ -90,15 +92,33 @@ new_local_var :: proc(name: string) -> ^Obj {
 }
 
 // stmt = "return" expr ";"
+//      | "if" "(" expr ")" stmt ("else" stmt)?
 //      | "{" compound-stmt
 //      | expr-stmt
-stmt :: proc(tok: ^Token) -> (node: ^Node, rest: ^Token) {
+stmt :: proc(tok: ^Token) -> (^Node, ^Token) {
 	#partial switch tok.kind {
-	case .K_Return:
-		lhs, expr_rest := expr(tok.next)
-		node = new_unary(.Return, lhs)
-		rest = skip(expr_rest, .Semi)
-		return
+	case .K_return:
+		node, rest := expr(tok.next)
+		node = new_unary(.Return, node)
+		rest = skip(rest, .Semi)
+		return node, rest
+	case .K_if:
+		node := new_node(.ND_IF)
+		rest := skip(tok.next, .LParen)
+		nd_expr, expr_rest := expr(rest)
+		node.cond = nd_expr
+		rest = skip(expr_rest, .RParen)
+
+		nd_stmt, stmt_rest := stmt(rest)
+		node.then = nd_stmt
+		rest = stmt_rest
+
+		if rest.kind == .K_else {
+			nd_stmt, stmt_rest := stmt(rest.next)
+			node.els = nd_stmt
+			rest = stmt_rest
+		}
+		return node, rest
 	case .LCurly: return compound_stmt(tok.next)
 	}
 	return expr_stmt(tok)
