@@ -1,28 +1,28 @@
 package chibicc
 
 import "core:strconv"
-import "core:unicode"
 import "core:unicode/utf8"
 
 TokenKind :: enum {
-	Ident  = 'a' + '_', // Identifiers
-	LParen = '(',
-	RParen = ')',
-	Star   = '*',
-	Slash  = '/',
-	Plus   = '+',
-	Minus  = '-',
-	LAngle = '<',
-	RAngle = '>',
-	LtEq   = '<' + '=',
-	GtEq   = '>' + '=',
-	Bang   = '!',
-	NotEq  = '!' + '=',
-	EqEq   = '=' * 2,
-	Equal  = '=',
-	Semi   = ';',
-	Num    = 48, // ascii number 0
-	Eof    = 0, // NUL '\0'
+	LParen   = '(',
+	RParen   = ')',
+	Star     = '*',
+	Slash    = '/',
+	Plus     = '+',
+	Minus    = '-',
+	LAngle   = '<',
+	RAngle   = '>',
+	Bang     = '!',
+	Equal    = '=',
+	LtEq     = -'<', // <=
+	GtEq     = -'>', // >=
+	NotEq    = -'!', // !=
+	EqEq     = -'=', // ==
+	Semi     = ';',
+	Num      = '0', // ascii number 0
+	Eof      = 0, // NUL '\0'
+	Ident    = 1000, // Identifiers or Keywords
+	K_Return = 9999,
 }
 Token :: struct {
 	next: ^Token,
@@ -65,6 +65,14 @@ is_ident :: proc(ch: rune) -> bool {
 	case: return false
 	}
 }
+
+ident2keyword :: proc(ident: string) -> TokenKind {
+	switch ident {
+	case "return": return .K_Return
+	case: return .Ident
+	}
+}
+
 tokenize :: proc(str: string) -> ^Token {
 	current_input = str
 	head := Token{}
@@ -73,40 +81,38 @@ tokenize :: proc(str: string) -> ^Token {
 	str_len := len(str)
 	for i < str_len {
 		ch := utf8.rune_at_pos(str, i)
-		switch {
-		case unicode.is_space(ch): i += 1
-		case unicode.is_digit(ch):
-			val, len := parse_number(str[i:])
-			cur.next = new_token(.Num, i)
-			cur = cur.next
-			cur.val = val
-			i += len
-		case:
-			tok_len := 1
-			tok_kind := TokenKind(ch)
-			switch ch {
-			case 'a' ..= 'z', 'A' ..= 'Z', '_':
-				start := i
-				i += 1
-				for is_ident(utf8.rune_at_pos(str, i)) {i += 1}
-				cur.next = new_token(.Ident, start, i - start)
-				cur = cur.next
-				continue
-			case ';':
-			case '(', ')':
-			case '+', '-', '*', '/':
-			case '=', '!', '<', '>':
-				inc_i := i + 1
-				if (inc_i < str_len) && utf8.rune_at_pos(str, inc_i) == '=' {
-					tok_len = 2
-					tok_kind = TokenKind(ch + '=')
-				}
-			case: error_at(i, "invalid token")
+		tok_len := 1
+		tok_kind := TokenKind(ch)
+		tok_val: int
+		switch ch {
+		case '\t', '\n', '\v', '\f', '\r', ' ':
+			i += 1
+			continue
+		case '0' ..= '9':
+			tok_val, tok_len = parse_number(str[i:])
+			tok_kind = .Num
+		case 'a' ..= 'z', 'A' ..= 'Z', '_':
+			start := i
+			end := i + 1
+			for is_ident(utf8.rune_at_pos(str, end)) do end += 1
+			tok_len = end - start
+			tok_kind = ident2keyword(str[start:end])
+		case ';':
+		case '(', ')':
+		case '+', '-', '*', '/':
+		case '=', '!', '<', '>':
+			inc_i := i + 1
+			// <=, >=, !=, ==
+			if (inc_i < str_len) && utf8.rune_at_pos(str, inc_i) == '=' {
+				tok_len = 2
+				tok_kind = TokenKind(-ch)
 			}
-			cur.next = new_token(tok_kind, i, tok_len)
-			cur = cur.next
-			i += tok_len
+		case: error_at(i, "invalid token")
 		}
+		cur.next = new_token(tok_kind, i, tok_len)
+		cur = cur.next
+		cur.val = tok_val
+		i += tok_len
 	}
 	cur.next = new_token(.Eof, i)
 	cur = cur.next

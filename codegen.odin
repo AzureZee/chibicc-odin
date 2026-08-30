@@ -33,6 +33,7 @@ codegen :: proc(prog: ^Function) {
 		assert(depth == 0)
 	}
 
+	sbprintfln(".L.return:")
 	// Epilogue
 	sbprintfln("  mov %%rbp, %%rsp")
 	sbprintfln("  pop %%rbp")
@@ -42,10 +43,12 @@ codegen :: proc(prog: ^Function) {
 }
 
 gen_stmt :: proc(node: ^Node) {
-	if node.kind == .ExprStmt {
+	#partial switch node.kind {
+	case .Return:
 		gen_expr(node.lhs)
-	} else {
-		error("invalid statement")
+		sbprintfln("  jmp .L.return")
+	case .ExprStmt: gen_expr(node.lhs)
+	case: error("invalid statement")
 	}
 }
 

@@ -32,14 +32,15 @@ NodeKind :: enum {
 	Mul      = '*',
 	Div      = '/',
 	Neg      = -'-',
-	Eq       = '=' * 2,
-	Ne       = '!' + '=',
-	Lt       = '<',
-	Le       = '<' + '=',
+	Lt       = '<', // < and >
+	Le       = -'<', // <= and >=
+	Ne       = -'!', // !=
+	Eq       = -'=', // ==
 	Assign   = '=',
 	ExprStmt = ';', // Expression statement
-	Var      = 'a' + '_', // Variable
-	Num      = 48, // ascii number 0
+	Num      = '0', // ascii number 0
+	Var      = 1000, // Variable
+	Return   = 9999,
 }
 
 // AST node type
@@ -86,8 +87,15 @@ new_local_var :: proc(name: string) -> ^Obj {
 	return var
 }
 
-// stmt = expr-stmt
+// stmt = "return" expr ";"
+//      | expr-stmt
 stmt :: proc(tok: ^Token) -> (node: ^Node, rest: ^Token) {
+	if tok.kind == .K_Return {
+		lhs, expr_rest := expr(tok.next)
+		node = new_unary(.Return, lhs)
+		rest = skip(expr_rest, .Semi)
+		return
+	}
 	return expr_stmt(tok)
 }
 
