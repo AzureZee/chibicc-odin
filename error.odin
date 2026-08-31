@@ -11,7 +11,7 @@ error_loc :: proc(loc := #caller_location) {
 }
 
 // Reports an error and exit.
-error :: proc(fmt_str: string, args: ..any, loc := #caller_location) {
+error :: proc(fmt_str: string, args: ..any, loc := #caller_location) -> !  {
 	error_loc(loc)
 	fmt.eprintfln(fmt_str, ..args)
 	os.exit(1)
@@ -24,7 +24,7 @@ error_at :: proc(
 	args: ..any,
 	src := current_input,
 	loc := #caller_location,
-) {
+) -> ! {
 	error_loc(loc)
 	fmt.eprintfln(fmt_str, ..args)
 	fmt.eprintfln("%s\n%*s^ ", src, pos, "")

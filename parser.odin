@@ -95,190 +95,173 @@ new_local_var :: proc(name: string) -> ^Obj {
 //      | "if" "(" expr ")" stmt ("else" stmt)?
 //      | "{" compound-stmt
 //      | expr-stmt
-stmt :: proc(tok: ^Token) -> (^Node, ^Token) {
+stmt :: proc(rest: ^^Token, tok: ^Token) -> ^Node {
+	tok := tok
 	#partial switch tok.kind {
 	case .K_return:
-		node, rest := expr(tok.next)
-		node = new_unary(.Return, node)
-		rest = skip(rest, .Semi)
-		return node, rest
+		node := new_unary(.Return, expr(&tok, tok.next))
+		rest^ = skip(tok, .Semi)
+		return node
 	case .K_if:
 		node := new_node(.ND_IF)
-		rest := skip(tok.next, .LParen)
-		nd_expr, expr_rest := expr(rest)
-		node.cond = nd_expr
-		rest = skip(expr_rest, .RParen)
+		tok = skip(tok.next, .LParen)
 
-		nd_stmt, stmt_rest := stmt(rest)
-		node.then = nd_stmt
-		rest = stmt_rest
+		node.cond = expr(&tok, tok)
+		tok = skip(tok, .RParen)
 
-		if rest.kind == .K_else {
-			nd_stmt, stmt_rest := stmt(rest.next)
-			node.els = nd_stmt
-			rest = stmt_rest
+		node.then = stmt(&tok, tok)
+		if tok.kind == .K_else {
+			node.els = stmt(&tok, tok.next)
 		}
-		return node, rest
-	case .LCurly: return compound_stmt(tok.next)
+		rest^ = tok
+		return node
+	case .LCurly: return compound_stmt(rest, tok.next)
 	}
-	return expr_stmt(tok)
+	return expr_stmt(rest, tok)
 }
 
 // compound-stmt = stmt* "}"
-compound_stmt :: proc(tok: ^Token) -> (^Node, ^Token) {
+compound_stmt :: proc(rest: ^^Token, tok: ^Token) -> ^Node {
 	head := Node{}
 	cur := &head
-	node, rest := stmt(tok)
-	cur.next = node
-	cur = cur.next
-	for rest.kind != .RCurly {
-		next, stmt_rest := stmt(rest)
-		rest = stmt_rest
-		cur.next = next
+	tok := tok
+	for tok.kind != .RCurly {
+		node := stmt(&tok, tok)
+		cur.next = node
 		cur = cur.next
 	}
-	node = new_node(.Block)
+	node := new_node(.Block)
 	node.body = head.next
-	return node, rest.next
+	rest^ = tok.next
+	return node
 }
 
 // expr-stmt = expr? ";"
-expr_stmt :: proc(tok: ^Token) -> (^Node, ^Token) {
+expr_stmt :: proc(rest: ^^Token, tok: ^Token) -> ^Node {
+	tok := tok
 	if tok.kind == .Semi {
-		return new_node(.Block), tok.next
+		rest^ = tok.next
+		return new_node(.Block)
 	}
 
-	node, rest := expr(tok)
-	node = new_unary(.ExprStmt, node)
-	rest = skip(rest, .Semi)
-	return node, rest
+	node := new_unary(.ExprStmt, expr(&tok, tok))
+	rest^ = skip(tok, .Semi)
+	return node
 }
 
 // expr = assign
-expr :: proc(tok: ^Token) -> (node: ^Node, rest: ^Token) {
-	return assign(tok)
+expr :: proc(rest: ^^Token, tok: ^Token) -> ^Node {
+	return assign(rest, tok)
 }
 
 // assign = equality ("=" assign)?
-assign :: proc(tok: ^Token) -> (node: ^Node, rest: ^Token) {
-	lhs, eq_rest := equality(tok)
-	if eq_rest.kind == .Equal {
-		rhs, assign_rest := assign(eq_rest.next)
-		node = new_binary(.Assign, lhs, rhs)
-		rest = assign_rest
-	} else {
-		node = lhs
-		rest = eq_rest
+assign :: proc(rest: ^^Token, tok: ^Token) -> ^Node {
+	tok := tok
+	node := equality(&tok, tok)
+	if tok.kind == .Equal {
+		node = new_binary(.Assign, node, assign(&tok, tok.next))
 	}
-	return
+	rest^ = tok
+	return node
 }
 
 // equality = relational ("==" relational | "!=" relational)*
-equality :: proc(tok: ^Token) -> (node: ^Node, rest: ^Token) {
-	node, rest = relational(tok)
+equality :: proc(rest: ^^Token, tok: ^Token) -> ^Node {
+	tok := tok
+	node := relational(&tok, tok)
 	for {
-		kind: NodeKind
-		#partial switch rest.kind {
-		case .EqEq, .NotEq: kind = NodeKind(rest.kind)
-		case: return
+		#partial switch tok.kind {
+		case .EqEq, .NotEq: node = new_binary(NodeKind(tok.kind), node, relational(&tok, tok.next))
+		case:
+			rest^ = tok
+			return node
 		}
-		rhs, new_rest := relational(rest.next)
-		node = new_binary(kind, node, rhs)
-		rest = new_rest
 	}
 }
 
 // relational = add ("<" add | "<=" add | ">" add | ">=" add)*
-relational :: proc(tok: ^Token) -> (node: ^Node, rest: ^Token) {
-	node, rest = add(tok)
+relational :: proc(rest: ^^Token, tok: ^Token) -> ^Node {
+	tok := tok
+	node := add(&tok, tok)
 	for {
-		kind: NodeKind
-		lhs, rhs: ^Node
-		new_rest: ^Token
-		#partial switch rest.kind {
+		#partial switch tok.kind {
 		case .LAngle, .LtEq:
-			kind = NodeKind(rest.kind); lhs = node; rhs, new_rest = add(rest.next)
-		case .RAngle:
-			kind = .Lt; lhs, new_rest = add(rest.next); rhs = node
-		case .GtEq:
-			kind = .Le; lhs, new_rest = add(rest.next); rhs = node
-		case: return
+			kind := NodeKind(tok.kind)
+			node = new_binary(kind, node, add(&tok, tok.next))
+		case .RAngle: node = new_binary(.Lt, add(&tok, tok.next), node)
+		case .GtEq: node = new_binary(.Le, add(&tok, tok.next), node)
+		case:
+			rest^ = tok
+			return node
 		}
-		node = new_binary(kind, lhs, rhs)
-		rest = new_rest
 	}
 }
 
 // add = mul ("+" mul | "-" mul)*
-add :: proc(tok: ^Token) -> (node: ^Node, rest: ^Token) {
-	node, rest = mul(tok)
+add :: proc(rest: ^^Token, tok: ^Token) -> ^Node {
+	tok := tok
+	node := mul(&tok, tok)
 	for {
-		kind: NodeKind
-		#partial switch rest.kind {
-		case .Plus, .Minus: kind = NodeKind(rest.kind)
-		case: return
+		#partial switch tok.kind {
+		case .Plus, .Minus: node = new_binary(NodeKind(tok.kind), node, mul(&tok, tok.next))
+		case:
+			rest^ = tok
+			return node
 		}
-		rhs, new_rest := mul(rest.next)
-		node = new_binary(kind, node, rhs)
-		rest = new_rest
 	}
 }
 // mul = unary ("*" unary | "/" unary)*
-mul :: proc(tok: ^Token) -> (node: ^Node, rest: ^Token) {
-	node, rest = unary(tok)
+mul :: proc(rest: ^^Token, tok: ^Token) -> ^Node {
+	tok := tok
+	node := unary(&tok, tok)
 	for {
-		kind: NodeKind
-		#partial switch rest.kind {
-		case .Star: kind = .Mul
-		case .Slash: kind = .Div
-		case: return
+		#partial switch tok.kind {
+		case .Star, .Slash: node = new_binary(NodeKind(tok.kind), node, unary(&tok, tok.next))
+		case:
+			rest^ = tok
+			return node
 		}
-		rhs, new_rest := unary(rest.next)
-		node = new_binary(kind, node, rhs)
-		rest = new_rest
 	}
 }
 
 // unary = ("+" | "-") unary
 //       | primary
-unary :: proc(tok: ^Token) -> (node: ^Node, rest: ^Token) {
+unary :: proc(rest: ^^Token, tok: ^Token) -> ^Node {
 	#partial switch tok.kind {
-	case .Plus: return unary(tok.next)
-	case .Minus:
-		lhs, new_rest := unary(tok.next)
-		node = new_unary(.Neg, lhs)
-		rest = new_rest
-		return
-	case: return primary(tok)
+	case .Plus: return unary(rest, tok.next)
+	case .Minus: return new_unary(.Neg, unary(rest, tok.next))
+	case: return primary(rest, tok)
 	}
 }
 
 // primary = "(" expr ")" | ident | num
-primary :: proc(tok: ^Token) -> (node: ^Node, rest: ^Token) {
+primary :: proc(rest: ^^Token, tok: ^Token) -> ^Node {
 	#partial switch tok.kind {
+	case .LParen:
+		tok := tok
+		node := expr(&tok, tok.next)
+		rest^ = skip(tok, .RParen)
+		return node
 	case .Ident:
 		var := find_var(tok)
 		if var == nil {
 			var = new_local_var(tok_str(tok))
 		}
-		node = new_var_node(var)
-		rest = tok.next
+		rest^ = tok.next
+		return new_var_node(var)
 	case .Num:
-		node = new_num(tok.val)
-		rest = tok.next
-	case .LParen:
-		node, rest = expr(tok.next)
-		rest = skip(rest, .RParen)
+		node := new_num(tok.val)
+		rest^ = tok.next
+		return node
 	case: error_at(tok.loc, "expected an expression")
 	}
-	return
 }
 
 // program = stmt*
 parse :: proc(tok: ^Token) -> ^Function {
 	tok := skip(tok, .LCurly)
-	node, rest := compound_stmt(tok)
-	assert(rest.kind == .Eof)
+	node := compound_stmt(&tok, tok)
+	assert(tok.kind == .Eof)
 
 	prog, _ := new(Function)
 	prog^ = {

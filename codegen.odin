@@ -1,19 +1,19 @@
+#+private file
+
 package chibicc
 
 import "core:fmt"
 import "core:strings"
 
-@(private = "file")
 depth: int
 
-@(private = "file")
 sb: ^strings.Builder
 
-@(private = "file")
 sbprintfln :: proc(fmt_s: string, args: ..any) {
 	fmt.sbprintfln(sb, fmt_s, ..args)
 }
 
+@(private)
 codegen :: proc(prog: ^Function) {
 	assign_local_var_offsets(prog)
 
@@ -121,7 +121,6 @@ gen_expr :: proc(node: ^Node) {
 	}
 }
 
-@(private = "file")
 count :: proc() -> int {
 	@(static) i := 1
 	defer i += 1
