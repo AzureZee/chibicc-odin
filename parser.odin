@@ -42,7 +42,7 @@ NodeKind :: enum {
 	Num      = '0', // ascii number 0
 	Var      = 999, // Variable
 	ND_IF    = __KEYWORD,
-	ND_FOR,
+	ND_FOR, // "for" or "while"
 	ND_RETURN,
 }
 
@@ -98,6 +98,7 @@ new_local_var :: proc(name: string) -> ^Obj {
 // stmt = "return" expr ";"
 //      | "if" "(" expr ")" stmt ("else" stmt)?
 //      | "for" "(" expr-stmt expr? ";" expr? ")" stmt
+//      | "while" "(" expr ")" stmt
 //      | "{" compound-stmt
 //      | expr-stmt
 stmt :: proc(rest: ^^Token, tok: ^Token) -> ^Node {
@@ -131,6 +132,13 @@ stmt :: proc(rest: ^^Token, tok: ^Token) -> ^Node {
 		if tok.kind != .RParen do node.inc = expr(&tok, tok)
 		tok = skip(tok, .RParen)
 
+		node.then = stmt(rest, tok)
+		return node
+	case .K_while:
+		node := new_node(.ND_FOR)
+		tok = skip(tok.next, .LParen)
+		node.cond = expr(&tok, tok)
+		tok = skip(tok, .RParen)
 		node.then = stmt(rest, tok)
 		return node
 	case .LCurly: return compound_stmt(rest, tok.next)

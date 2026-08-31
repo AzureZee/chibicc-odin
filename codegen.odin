@@ -56,7 +56,9 @@ gen_stmt :: proc(node: ^Node) {
 		sbprintfln(".L.end.%d:", c)
 	case .ND_FOR:
 		c := count()
-		gen_stmt(node.init)
+		if node.init != nil {
+			gen_stmt(node.init)
+		}
 		sbprintfln(".L.begin.%d:", c)
 
 		if node.cond != nil {
@@ -64,7 +66,6 @@ gen_stmt :: proc(node: ^Node) {
 			sbprintfln("  cmp $0, %%rax")
 			sbprintfln("  je  .L.end.%d", c)
 		}
-
 		gen_stmt(node.then)
 
 		if node.inc != nil {
