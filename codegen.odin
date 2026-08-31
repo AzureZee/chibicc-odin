@@ -54,10 +54,28 @@ gen_stmt :: proc(node: ^Node) {
 			gen_stmt(node.els)
 		}
 		sbprintfln(".L.end.%d:", c)
+	case .ND_FOR:
+		c := count()
+		gen_stmt(node.init)
+		sbprintfln(".L.begin.%d:", c)
+
+		if node.cond != nil {
+			gen_expr(node.cond)
+			sbprintfln("  cmp $0, %%rax")
+			sbprintfln("  je  .L.end.%d", c)
+		}
+
+		gen_stmt(node.then)
+
+		if node.inc != nil {
+			gen_expr(node.inc)
+		}
+		sbprintfln("  jmp .L.begin.%d", c)
+		sbprintfln(".L.end.%d:", c)
 	case .Block: for nd := node.body; nd != nil; nd = nd.next {
 				gen_stmt(nd)
 			}
-	case .Return:
+	case .ND_RETURN:
 		gen_expr(node.lhs)
 		sbprintfln("  jmp .L.return")
 	case .ExprStmt: gen_expr(node.lhs)

@@ -42,15 +42,19 @@ NodeKind :: enum {
 	Num      = '0', // ascii number 0
 	Var      = 999, // Variable
 	ND_IF    = __KEYWORD,
-	Return   = 9999,
+	ND_FOR,
+	ND_RETURN,
 }
 
 // AST node type
 Node :: struct {
 	kind           : NodeKind,
 	next, lhs, rhs : ^Node,
-	cond, then, els: ^Node, // "if" statement
-	body           : ^Node, // Block
+	// "if" or "for" statement
+	cond, then, els: ^Node,
+	init, inc      : ^Node,
+	// Block
+	body           : ^Node,
 	var            : ^Obj, // Used if kind == ND_VAR
 	val            : int, // Used if kind == ND_NUM
 }
@@ -93,13 +97,14 @@ new_local_var :: proc(name: string) -> ^Obj {
 
 // stmt = "return" expr ";"
 //      | "if" "(" expr ")" stmt ("else" stmt)?
+//      | "for" "(" expr-stmt expr? ";" expr? ")" stmt
 //      | "{" compound-stmt
 //      | expr-stmt
 stmt :: proc(rest: ^^Token, tok: ^Token) -> ^Node {
 	tok := tok
 	#partial switch tok.kind {
 	case .K_return:
-		node := new_unary(.Return, expr(&tok, tok.next))
+		node := new_unary(.ND_RETURN, expr(&tok, tok.next))
 		rest^ = skip(tok, .Semi)
 		return node
 	case .K_if:
@@ -114,6 +119,19 @@ stmt :: proc(rest: ^^Token, tok: ^Token) -> ^Node {
 			node.els = stmt(&tok, tok.next)
 		}
 		rest^ = tok
+		return node
+	case .K_for:
+		node := new_node(.ND_FOR)
+		tok = skip(tok.next, .LParen)
+
+		node.init = expr_stmt(&tok, tok)
+		if tok.kind != .Semi do node.cond = expr(&tok, tok)
+		tok = skip(tok, .Semi)
+
+		if tok.kind != .RParen do node.inc = expr(&tok, tok)
+		tok = skip(tok, .RParen)
+
+		node.then = stmt(rest, tok)
 		return node
 	case .LCurly: return compound_stmt(rest, tok.next)
 	}

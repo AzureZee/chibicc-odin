@@ -26,6 +26,7 @@ TokenKind :: enum {
 	Ident  = 999, // Identifiers or Keywords
 	K_if   = __KEYWORD,
 	K_else,
+	K_for,
 	K_return,
 }
 __KEYWORD :: 1000
@@ -73,7 +74,7 @@ is_ident :: proc(ch: rune) -> bool {
 }
 
 ident2keyword :: proc(ident: string) -> TokenKind {
-	keywords :: [?]string{"if", "else", "return"}
+	keywords :: [?]string{"if", "else", "for", "return"}
 
 	for kw, i in keywords {
 		if ident == kw {
