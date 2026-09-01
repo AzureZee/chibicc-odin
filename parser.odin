@@ -49,6 +49,7 @@ NodeKind :: enum {
 // AST node type
 Node :: struct {
 	kind           : NodeKind,
+	tok            : ^Token, // Representative token
 	next, lhs, rhs : ^Node,
 	// "if" or "for" statement
 	cond, then, els: ^Node,
@@ -58,34 +59,35 @@ Node :: struct {
 	var            : ^Obj, // Used if kind == ND_VAR
 	val            : int, // Used if kind == ND_NUM
 }
-new_node :: proc(kind: NodeKind) -> ^Node {
+new_node :: proc(kind: NodeKind, tok: ^Token) -> ^Node {
 	node, _ := new(Node)
 	node.kind = kind
+	node.tok = tok
 	return node
 }
-new_binary :: proc(kind: NodeKind, lhs, rhs: ^Node) -> ^Node {
-	node := new_node(kind)
+new_binary :: proc(kind: NodeKind, lhs, rhs: ^Node, tok: ^Token) -> ^Node {
+	node := new_node(kind, tok)
 	node.lhs = lhs
 	node.rhs = rhs
 	return node
 }
-new_unary :: proc(kind: NodeKind, lhs: ^Node) -> ^Node {
-	node := new_node(kind)
+new_unary :: proc(kind: NodeKind, lhs: ^Node, tok: ^Token) -> ^Node {
+	node := new_node(kind, tok)
 	node.lhs = lhs
 	return node
 }
-new_num :: proc(val: int) -> ^Node {
-	node := new_node(NodeKind.Num)
+new_num :: proc(val: int, tok: ^Token) -> ^Node {
+	node := new_node(NodeKind.Num, tok)
 	node.val = val
 	return node
 }
 
-new_var_node :: proc(var: ^Obj) -> ^Node {
-	node := new_node(NodeKind.Var)
+new_var_node :: proc(var: ^Obj, tok: ^Token) -> ^Node {
+	node := new_node(NodeKind.Var, tok)
 	node.var = var
 	return node
 }
-new_local_var :: proc(name: string) -> ^Obj {
+new_lvar :: proc(name: string) -> ^Obj {
 	var, _ := new(Obj)
 	var^ = {
 		name = name,
@@ -105,11 +107,12 @@ stmt :: proc(rest: ^^Token, tok: ^Token) -> ^Node {
 	tok := tok
 	#partial switch tok.kind {
 	case .K_return:
-		node := new_unary(.ND_RETURN, expr(&tok, tok.next))
+		start := tok
+		node := new_unary(.ND_RETURN, expr(&tok, tok.next), start)
 		rest^ = skip(tok, .Semi)
 		return node
 	case .K_if:
-		node := new_node(.ND_IF)
+		node := new_node(.ND_IF, tok)
 		tok = skip(tok.next, .LParen)
 
 		node.cond = expr(&tok, tok)
@@ -122,7 +125,7 @@ stmt :: proc(rest: ^^Token, tok: ^Token) -> ^Node {
 		rest^ = tok
 		return node
 	case .K_for:
-		node := new_node(.ND_FOR)
+		node := new_node(.ND_FOR, tok)
 		tok = skip(tok.next, .LParen)
 
 		node.init = expr_stmt(&tok, tok)
@@ -135,7 +138,7 @@ stmt :: proc(rest: ^^Token, tok: ^Token) -> ^Node {
 		node.then = stmt(rest, tok)
 		return node
 	case .K_while:
-		node := new_node(.ND_FOR)
+		node := new_node(.ND_FOR, tok)
 		tok = skip(tok.next, .LParen)
 		node.cond = expr(&tok, tok)
 		tok = skip(tok, .RParen)
@@ -148,6 +151,7 @@ stmt :: proc(rest: ^^Token, tok: ^Token) -> ^Node {
 
 // compound-stmt = stmt* "}"
 compound_stmt :: proc(rest: ^^Token, tok: ^Token) -> ^Node {
+	node := new_node(.Block, tok)
 	head := Node{}
 	cur := &head
 	tok := tok
@@ -156,7 +160,6 @@ compound_stmt :: proc(rest: ^^Token, tok: ^Token) -> ^Node {
 		cur.next = node
 		cur = cur.next
 	}
-	node := new_node(.Block)
 	node.body = head.next
 	rest^ = tok.next
 	return node
@@ -167,10 +170,11 @@ expr_stmt :: proc(rest: ^^Token, tok: ^Token) -> ^Node {
 	tok := tok
 	if tok.kind == .Semi {
 		rest^ = tok.next
-		return new_node(.Block)
+		return new_node(.Block, tok)
 	}
 
-	node := new_unary(.ExprStmt, expr(&tok, tok))
+	start := tok
+	node := new_unary(.ExprStmt, expr(&tok, tok), start)
 	rest^ = skip(tok, .Semi)
 	return node
 }
@@ -185,7 +189,8 @@ assign :: proc(rest: ^^Token, tok: ^Token) -> ^Node {
 	tok := tok
 	node := equality(&tok, tok)
 	if tok.kind == .Equal {
-		node = new_binary(.Assign, node, assign(&tok, tok.next))
+		start := tok
+		node = new_binary(.Assign, node, assign(&tok, tok.next), start)
 	}
 	rest^ = tok
 	return node
@@ -196,8 +201,10 @@ equality :: proc(rest: ^^Token, tok: ^Token) -> ^Node {
 	tok := tok
 	node := relational(&tok, tok)
 	for {
+		start := tok
 		#partial switch tok.kind {
-		case .EqEq, .NotEq: node = new_binary(NodeKind(tok.kind), node, relational(&tok, tok.next))
+		case .EqEq, .NotEq:
+			node = new_binary(NodeKind(tok.kind), node, relational(&tok, tok.next), start)
 		case:
 			rest^ = tok
 			return node
@@ -210,12 +217,13 @@ relational :: proc(rest: ^^Token, tok: ^Token) -> ^Node {
 	tok := tok
 	node := add(&tok, tok)
 	for {
+		start := tok
 		#partial switch tok.kind {
 		case .LAngle, .LtEq:
 			kind := NodeKind(tok.kind)
-			node = new_binary(kind, node, add(&tok, tok.next))
-		case .RAngle: node = new_binary(.Lt, add(&tok, tok.next), node)
-		case .GtEq: node = new_binary(.Le, add(&tok, tok.next), node)
+			node = new_binary(kind, node, add(&tok, tok.next), start)
+		case .RAngle: node = new_binary(.Lt, add(&tok, tok.next), node, start)
+		case .GtEq: node = new_binary(.Le, add(&tok, tok.next), node, start)
 		case:
 			rest^ = tok
 			return node
@@ -228,8 +236,9 @@ add :: proc(rest: ^^Token, tok: ^Token) -> ^Node {
 	tok := tok
 	node := mul(&tok, tok)
 	for {
+		start := tok
 		#partial switch tok.kind {
-		case .Plus, .Minus: node = new_binary(NodeKind(tok.kind), node, mul(&tok, tok.next))
+		case .Plus, .Minus: node = new_binary(NodeKind(tok.kind), node, mul(&tok, tok.next), start)
 		case:
 			rest^ = tok
 			return node
@@ -241,8 +250,10 @@ mul :: proc(rest: ^^Token, tok: ^Token) -> ^Node {
 	tok := tok
 	node := unary(&tok, tok)
 	for {
+		start := tok
 		#partial switch tok.kind {
-		case .Star, .Slash: node = new_binary(NodeKind(tok.kind), node, unary(&tok, tok.next))
+		case .Star, .Slash:
+			node = new_binary(NodeKind(tok.kind), node, unary(&tok, tok.next), start)
 		case:
 			rest^ = tok
 			return node
@@ -255,7 +266,7 @@ mul :: proc(rest: ^^Token, tok: ^Token) -> ^Node {
 unary :: proc(rest: ^^Token, tok: ^Token) -> ^Node {
 	#partial switch tok.kind {
 	case .Plus: return unary(rest, tok.next)
-	case .Minus: return new_unary(.Neg, unary(rest, tok.next))
+	case .Minus: return new_unary(.Neg, unary(rest, tok.next), tok)
 	case: return primary(rest, tok)
 	}
 }
@@ -271,12 +282,12 @@ primary :: proc(rest: ^^Token, tok: ^Token) -> ^Node {
 	case .Ident:
 		var := find_var(tok)
 		if var == nil {
-			var = new_local_var(tok_str(tok))
+			var = new_lvar(tok_str(tok))
 		}
 		rest^ = tok.next
-		return new_var_node(var)
+		return new_var_node(var, tok)
 	case .Num:
-		node := new_num(tok.val)
+		node := new_num(tok.val, tok)
 		rest^ = tok.next
 		return node
 	case: error_at(tok.loc, "expected an expression")

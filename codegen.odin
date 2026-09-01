@@ -80,7 +80,7 @@ gen_stmt :: proc(node: ^Node) {
 		gen_expr(node.lhs)
 		sbprintfln("  jmp .L.return")
 	case .ExprStmt: gen_expr(node.lhs)
-	case: error("invalid statement")
+	case: error_tok(node.tok, "invalid statement")
 	}
 }
 
@@ -90,7 +90,7 @@ gen_addr :: proc(node: ^Node) {
 	if node.kind == .Var {
 		sbprintfln("  lea %d(%%rbp), %%rax", node.var.offset)
 	} else {
-		error("not an local value")
+		error_tok(node.tok, "not an left-value")
 	}
 }
 
@@ -136,7 +136,7 @@ gen_expr :: proc(node: ^Node) {
 		case .Le: sbprintfln("  setle %%al")
 		}
 		sbprintfln("  movzb %%al, %%rax")
-	case: error("invalid expression")
+	case: error_tok(node.tok, "invalid expression")
 	}
 }
 
