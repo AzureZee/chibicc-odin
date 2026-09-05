@@ -27,23 +27,23 @@ Function :: struct {
 }
 
 NodeKind :: enum {
-	Block    = '{', // { ... }
-	Add      = '+',
-	Sub      = '-',
-	Mul      = '*',
-	Div      = '/',
-	Neg      = -'-',
-	Lt       = '<', // < and >
-	Le       = -'<', // <= and >=
-	Ne       = -'!', // !=
-	Eq       = -'=', // ==
-	Assign   = '=',
-	Addr     = '&',
-	Deref    = -'*',
+	Block = '{', // { ... }
+	Add = '+',
+	Sub = '-',
+	Mul = '*',
+	Div = '/',
+	Neg = -'-',
+	Lt = '<', // < and >
+	Le = -'<', // <= and >=
+	Ne = -'!', // !=
+	Eq = -'=', // ==
+	Assign = '=',
+	Ref = '&',
+	Deref = -'*',
 	ExprStmt = ';', // Expression statement
-	Num      = '0', // ascii number 0
-	Var      = 999, // Variable
-	ND_IF    = __KEYWORD,
+	Num = '0', // ascii number 0
+	Var = 999, // Variable
+	ND_IF = __KEYWORD,
 	ND_FOR, // "for" or "while"
 	ND_RETURN,
 }
@@ -52,6 +52,7 @@ NodeKind :: enum {
 Node :: struct {
 	kind           : NodeKind,
 	tok            : ^Token, // Representative token
+	ty             : ^Type,
 	next, lhs, rhs : ^Node,
 	// "if" or "for" statement
 	cond, then, els: ^Node,
@@ -83,7 +84,65 @@ new_num :: proc(val: int, tok: ^Token) -> ^Node {
 	node.val = val
 	return node
 }
+// In C, `+` operator is overloaded to perform the pointer arithmetic.
+// If p is a pointer, p+n adds not n but sizeof(*p)*n to the value of p,
+// so that p+n points to the location n elements (not bytes) ahead of p.
+// In other words, we need to scale an integer value before adding to a
+// pointer value. This function takes care of the scaling.
+new_add :: proc(lhs: ^Node, rhs: ^Node, tok: ^Token) -> ^Node {
+	lhs := lhs
+	rhs := rhs
 
+	mark_type(lhs)
+	mark_type(rhs)
+
+	// num + num
+	if is_integer(lhs.ty) && is_integer(rhs.ty) {
+		return new_binary(.Add, lhs, rhs, tok)
+	}
+	// ptr + ptr
+	if lhs.ty.base != nil && rhs.ty.base != nil {
+		error_tok(tok, "invalid operands")
+	}
+	// Canonicalize `num + ptr` to `ptr + num`.
+	if lhs.ty.base == nil && rhs.ty.base != nil {
+		tmp := lhs
+		lhs = rhs
+		rhs = tmp
+	}
+
+	// ptr + num
+	rhs = new_binary(.Mul, rhs, new_num(8, tok), tok)
+	return new_binary(.Add, lhs, rhs, tok)
+}
+new_sub :: proc(lhs: ^Node, rhs: ^Node, tok: ^Token) -> ^Node {
+	lhs := lhs
+	rhs := rhs
+
+	mark_type(lhs)
+	mark_type(rhs)
+
+	// num - num
+	if is_integer(lhs.ty) && is_integer(rhs.ty) {
+		return new_binary(.Sub, lhs, rhs, tok)
+	}
+	// ptr - num
+	if lhs.ty.base != nil && is_integer(rhs.ty) {
+		rhs = new_binary(.Mul, rhs, new_num(8, tok), tok)
+		mark_type(rhs)
+		node := new_binary(.Sub, lhs, rhs, tok)
+		node.ty = lhs.ty
+		return node
+	}
+	// ptr - ptr, which returns how many elements are between the two.
+	if lhs.ty.base != nil && rhs.ty.base != nil {
+		node := new_binary(.Sub, lhs, rhs, tok)
+		node.ty = ty_int
+		return new_binary(.Div, node, new_num(8, tok), tok)
+	}
+	error_tok(tok, "invalid operands")
+
+}
 new_var_node :: proc(var: ^Obj, tok: ^Token) -> ^Node {
 	node := new_node(NodeKind.Var, tok)
 	node.var = var
@@ -161,6 +220,7 @@ compound_stmt :: proc(rest: ^^Token, tok: ^Token) -> ^Node {
 		node := stmt(&tok, tok)
 		cur.next = node
 		cur = cur.next
+		mark_type(cur)
 	}
 	node.body = head.next
 	rest^ = tok.next
@@ -240,7 +300,8 @@ add :: proc(rest: ^^Token, tok: ^Token) -> ^Node {
 	for {
 		start := tok
 		#partial switch tok.kind {
-		case .Plus, .Minus: node = new_binary(NodeKind(tok.kind), node, mul(&tok, tok.next), start)
+		case .Plus: node = new_add(node, mul(&tok, tok.next), start)
+		case .Minus: node = new_sub(node, mul(&tok, tok.next), start)
 		case:
 			rest^ = tok
 			return node
@@ -269,7 +330,7 @@ unary :: proc(rest: ^^Token, tok: ^Token) -> ^Node {
 	#partial switch tok.kind {
 	case .Plus: return unary(rest, tok.next)
 	case .Minus: return new_unary(.Neg, unary(rest, tok.next), tok)
-	case .And: return new_unary(.Addr, unary(rest, tok.next), tok)
+	case .And: return new_unary(.Ref, unary(rest, tok.next), tok)
 	case .Star: return new_unary(.Deref, unary(rest, tok.next), tok)
 	case: return primary(rest, tok)
 	}
@@ -329,4 +390,3 @@ parse :: proc(tok: ^Token) -> ^Function {
 // Most parsing functions don't change the global state of the parser.
 // So it is very easy to lookahead arbitrary number of tokens in this
 // parser.
-

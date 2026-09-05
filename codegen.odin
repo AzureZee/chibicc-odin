@@ -111,7 +111,7 @@ gen_expr :: proc(node: ^Node) {
 		gen_expr(node.lhs)
 		sbprintfln("  mov (%%rax), %%rax")
 		return
-	case .Addr:
+	case .Ref:
 		gen_addr(node.lhs)
 		return
 	case .Assign:
