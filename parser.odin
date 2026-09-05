@@ -38,6 +38,8 @@ NodeKind :: enum {
 	Ne       = -'!', // !=
 	Eq       = -'=', // ==
 	Assign   = '=',
+	Addr     = '&',
+	Deref    = -'*',
 	ExprStmt = ';', // Expression statement
 	Num      = '0', // ascii number 0
 	Var      = 999, // Variable
@@ -261,12 +263,14 @@ mul :: proc(rest: ^^Token, tok: ^Token) -> ^Node {
 	}
 }
 
-// unary = ("+" | "-") unary
+// unary = ("+" | "-" | "*" | "&") unary
 //       | primary
 unary :: proc(rest: ^^Token, tok: ^Token) -> ^Node {
 	#partial switch tok.kind {
 	case .Plus: return unary(rest, tok.next)
 	case .Minus: return new_unary(.Neg, unary(rest, tok.next), tok)
+	case .And: return new_unary(.Addr, unary(rest, tok.next), tok)
+	case .Star: return new_unary(.Deref, unary(rest, tok.next), tok)
 	case: return primary(rest, tok)
 	}
 }
@@ -307,3 +311,22 @@ parse :: proc(tok: ^Token) -> ^Function {
 	}
 	return prog
 }
+
+// This file contains a recursive descent parser for C.
+//
+// Most functions in this file are named after the symbols they are
+// supposed to read from an input token list. For example, stmt() is
+// responsible for reading a statement from a token list. The function
+// then construct an AST node representing a statement.
+//
+// Each function conceptually returns two values, an AST node and
+// remaining part of the input tokens. Since C doesn't support
+// multiple return values, the remaining tokens are returned to the
+// caller via a pointer argument.
+//
+// Input tokens are represented by a linked list. Unlike many recursive
+// descent parsers, we don't have the notion of the "input token stream".
+// Most parsing functions don't change the global state of the parser.
+// So it is very easy to lookahead arbitrary number of tokens in this
+// parser.
+

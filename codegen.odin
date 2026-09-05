@@ -87,10 +87,10 @@ gen_stmt :: proc(node: ^Node) {
 // Compute the absolute address of a given node.
 // It's an error if a given node does not reside in memory.
 gen_addr :: proc(node: ^Node) {
-	if node.kind == .Var {
-		sbprintfln("  lea %d(%%rbp), %%rax", node.var.offset)
-	} else {
-		error_tok(node.tok, "not an left-value")
+	#partial switch node.kind {
+	case .Var: sbprintfln("  lea %d(%%rbp), %%rax", node.var.offset)
+	case .Deref: gen_expr(node.lhs)
+	case: error_tok(node.tok, "not an left-value")
 	}
 }
 
@@ -106,6 +106,13 @@ gen_expr :: proc(node: ^Node) {
 	case .Var:
 		gen_addr(node)
 		sbprintfln("  mov (%%rax), %%rax")
+		return
+	case .Deref:
+		gen_expr(node.lhs)
+		sbprintfln("  mov (%%rax), %%rax")
+		return
+	case .Addr:
+		gen_addr(node.lhs)
 		return
 	case .Assign:
 		gen_addr(node.lhs)

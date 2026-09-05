@@ -8,6 +8,7 @@ TokenKind :: enum {
 	RParen = ')',
 	LCurly = '{',
 	RCurly = '}',
+	And    = '&',
 	Star   = '*',
 	Slash  = '/',
 	Plus   = '+',
@@ -111,7 +112,7 @@ tokenize :: proc(str: string) -> ^Token {
 			tok_kind = ident2keyword(str[start:end])
 		case ';':
 		case '(', ')', '{', '}':
-		case '+', '-', '*', '/':
+		case '+', '-', '*', '/', '&':
 		case '=', '!', '<', '>':
 			inc_i := i + 1
 			// <=, >=, !=, ==
